@@ -1,0 +1,9 @@
+[package]
+name = "base_station_controller"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+btleplug = "0.11.8"
+tokio = {version = "1.49.0", features = ["full"]}
+uuid = "1.20.0"
