@@ -87,6 +87,7 @@ async fn main() {
     }
 }
 
+#[inline]
 async fn find_base_stations(central: &Adapter) -> Result<Vec<Peripheral>, btleplug::Error> {
     let mut base_stations: Vec<Peripheral> = Vec::new();
 
