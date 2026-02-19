@@ -1,5 +1,6 @@
 [![Language](https://img.shields.io/badge/language-Rust-orange)](#)
 [![Platform](https://img.shields.io/badge/platform-Linux-green)](#)
+[![Platform](https://img.shields.io/badge/platform-Windows-blue)](#)
 
 ### **About**
 It is a Base Station Controller. Can control to call wake up mode or sleep mode by using CLI.
