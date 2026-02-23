@@ -74,12 +74,16 @@ async fn main() {
                 Err(e) => eprintln!("Error: wake up command failed {}", e)
             }
 
+            time::sleep(Duration::from_secs(1)).await;
+
         } else if power_mode.to_lowercase() == "sleep" {
             // sleep mode
             match p.write(&cmd_char, &[b'\x00'], WriteType::WithoutResponse).await {
                 Ok(()) => {},
                 Err(e) => eprintln!("Error: sleep mode command failed {}", e)
             }
+
+            time::sleep(Duration::from_secs(1)).await;
 
         } else {
             panic!("power mode should name excatly \"wake\" or \"sleep\"");
