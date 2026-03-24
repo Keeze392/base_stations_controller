@@ -6,7 +6,7 @@
 It is a Base Station Controller. Can control to call wake up mode or sleep mode by using CLI.
 
 ### **How to use**
-You can download by [Release](https://github.com/Keeze392/base_stations_controller/releases/tag/0.1.0).
+You can download by [Release](https://github.com/Keeze392/base_stations_controller/releases/tag/0.1.2).
 
 To run: \
 `./base_station_controller wake` or write "sleep" instead "wake".
