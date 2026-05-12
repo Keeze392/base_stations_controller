@@ -1,108 +1,116 @@
-use std::time::Duration;
 use std::env::args;
+use std::time::Duration;
 
-use btleplug::api::{Central, Manager as _, Peripheral as _, ScanFilter, WriteType};
+use btleplug::api::{Central, CentralEvent, Manager as _, Peripheral as _, ScanFilter, WriteType};
 use btleplug::platform::{Adapter, Manager, Peripheral};
 
-use tokio::time;
+use futures::StreamExt;
 
+use tokio::time::timeout;
 use uuid::{uuid, Uuid};
+
+// this uuid is for power mode.
+const BASE_STATION_UUID: Uuid = uuid!("00001525-1212-efde-1523-785feabcd124");
 
 #[tokio::main]
 async fn main() {
     let power_mode: String = match args().nth(1) {
-        Some(v) => v,
+        Some(val) => val,
         None => panic!("missing input, available mode: wake, sleep")
     };
 
-    // this uuid is for power mode.
-    const BASE_STATION_UUID: Uuid = uuid!("00001525-1212-efde-1523-785feabcd124");
-
     let manager: Manager = match Manager::new().await {
-        Ok(m) => m,
+        Ok(val) => val,
         Err(e) => panic!("Creating Manager failed {}", e)
     };
 
     // get adapters from manager
     let adapters: Vec<Adapter> = match manager.adapters().await {
-        Ok(a) => a,
+        Ok(val) => val,
         Err(e) => panic!("trying get adapters failed {}", e)
     };
 
     // get device from adapters
     let central: Adapter = match adapters.into_iter().nth(0) {
-        Some(c) => c,
+        Some(val) => val,
         None => panic!("trying get device from adapter failed")
     };
 
     // start scan to get base stations
     match central.start_scan(ScanFilter::default()).await {
         Ok(()) => {},
-        Err(e) => panic!("trying start scanning failed {}", e)
+        Err(e) => panic!("trying start scanning failed {e}")
     }
 
-    time::sleep(Duration::from_secs(4)).await;
-    
-    let base_stations: Vec<Peripheral> = match find_base_stations(&central).await {
-        Ok(b) => b,
-        Err(e) => panic!("No base station detected {}", e)
+    // for get callback from events
+    let mut events = match central.events().await {
+        Ok(val) => val,
+        Err(e) => panic!("trying retrieve event failed {e}")
     };
 
-    // connect it and get service
-    for p in base_stations {
-        match p.connect().await {
-            Ok(()) => {},
-            Err(e) => eprintln!("Error: trying connect base station but failed {}", e)
-        }
+    // run soon as discover a device, stop the work after 2 secs are up
+    timeout(Duration::from_secs(2), async {
+        while let Some(event) = events.next().await {
+            match event {
+                CentralEvent::DeviceDiscovered(id) => {
+                    let peripheral = match central.peripheral(&id).await {
+                        Ok(val) => val,
+                        Err(_) => continue,
+                    };
 
-        match p.discover_services().await {
-            Ok(()) => {},
-            Err(e) => eprintln!("Error: trying discover services failed {}", e)
-        }
+                    let properties = match peripheral.properties().await {
+                        Ok(val) => val,
+                        Err(_) => continue,
+                    };
 
-        let chars = p.characteristics();
-        let cmd_char: &btleplug::api::Characteristic = match chars.iter().find(|c| c.uuid == BASE_STATION_UUID) {
-            Some(t) => t,
-            None => panic!("trying find base station uuid failed")
-        };
+                    if properties
+                        .and_then(|p| p.local_name)
+                        .map(|name| name.contains("LHB-"))
+                        .unwrap_or(false) {
 
-        // send command what to do
-        if power_mode.to_lowercase() == "wake" {
-            // wake up mode
-            match p.write(&cmd_char, &[b'\x01'], WriteType::WithoutResponse).await {
-                Ok(()) => {},
-                Err(e) => eprintln!("Error: wake up command failed {}", e)
+                        tokio::spawn(send_command(peripheral, power_mode.clone()));
+                    }
+                }
+                _ => {}
             }
-
-            time::sleep(Duration::from_secs(1)).await;
-
-        } else if power_mode.to_lowercase() == "sleep" {
-            // sleep mode
-            match p.write(&cmd_char, &[b'\x00'], WriteType::WithoutResponse).await {
-                Ok(()) => {},
-                Err(e) => eprintln!("Error: sleep mode command failed {}", e)
-            }
-
-            time::sleep(Duration::from_secs(1)).await;
-
-        } else {
-            panic!("power mode should name excatly \"wake\" or \"sleep\"");
         }
-    }
+    }).await.ok();
 }
 
 #[inline]
-async fn find_base_stations(central: &Adapter) -> Result<Vec<Peripheral>, btleplug::Error> {
-    let mut base_stations: Vec<Peripheral> = Vec::new();
-
-    for p in central.peripherals().await? {
-        if let Some(name) = p.properties().await? {
-            if name.local_name.iter().any(|name| name.contains("LHB-")) {
-                println!("Found base station device: {}", name.local_name.as_deref().unwrap_or("unknown"));
-                base_stations.push(p);
-            }
-        }
+async fn send_command(p: Peripheral, power_mode: String) {
+    match p.connect().await {
+        Ok(()) => {},
+        Err(e) => eprintln!("Error: trying connect base station but failed {}", e)
     }
 
-    Ok(base_stations)
+    match p.discover_services().await {
+        Ok(()) => {},
+        Err(e) => eprintln!("Error: trying discover services failed {}", e)
+    }
+
+    let chars = p.characteristics();
+    let cmd_char: &btleplug::api::Characteristic = match chars.iter().find(|c| c.uuid == BASE_STATION_UUID) {
+        Some(t) => t,
+        None => panic!("trying find base station uuid failed")
+    };
+
+    // send command what to do
+    if power_mode.to_lowercase() == "wake" {
+
+        // wake up mode
+        match p.write(&cmd_char, &[b'\x01'], WriteType::WithoutResponse).await {
+            Ok(()) => {},
+            Err(e) => eprintln!("Error: wake up command failed {}", e)
+        }
+    } else if power_mode.to_lowercase() == "sleep" {
+
+        // sleep mode
+        match p.write(&cmd_char, &[b'\x00'], WriteType::WithoutResponse).await {
+            Ok(()) => {},
+            Err(e) => eprintln!("Error: sleep mode command failed {}", e)
+        }
+    } else {
+        panic!("power mode should name excatly \"wake\" or \"sleep\"");
+    }
 }
